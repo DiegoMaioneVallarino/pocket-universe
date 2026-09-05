@@ -6,24 +6,79 @@ import {
     hashSeed
 } from "../hash/hashSeed"
 
-export type UniverseChild = {
-    seed: number
+import {
+    getNextLevel
+} from "./levels"
 
-    x: number
-    y: number
-    radius: number
-}
+import type {
+    UniverseNode
+} from "./types"
+
+
+const CHILD_COUNT_RANGE = {
+    ultraCluster: [8, 16],
+    hyperCluster: [12, 16],
+    superCluster: [16, 26],
+    cluster: [24, 32],
+    galaxy: [32, 64],
+    solarSystem: [2, 15],
+    planet: [0, 12]
+} as const
 
 
 export function generateChildren(
-    seed: number,
-    count: number
-): UniverseChild[] {
+    parent: UniverseNode
+): UniverseNode[] {
 
     const random =
-        seededRandom(seed)
+        seededRandom(
+            parent.seed
+        )
 
-    const children: UniverseChild[] = []
+
+    const nextLevel =
+        getNextLevel(
+            parent.level
+        )
+
+
+    if (!nextLevel) {
+        return []
+    }
+
+
+    const range =
+        CHILD_COUNT_RANGE[
+            parent.level as keyof typeof CHILD_COUNT_RANGE
+        ]
+
+
+    if (!range) {
+        return []
+    }
+
+
+    const min =
+        range[0]
+
+    const max =
+        range[1]
+
+
+    const count =
+        Math.floor(
+            min +
+            random() *
+            (
+                max -
+                min +
+                1
+            )
+        )
+
+
+    const children: UniverseNode[] =
+        []
 
 
     for (
@@ -31,6 +86,13 @@ export function generateChildren(
         i < count;
         i++
     ) {
+
+        const childSeed =
+            hashSeed(
+                parent.seed,
+                i
+            )
+
 
         const angle =
             random() *
@@ -45,35 +107,30 @@ export function generateChildren(
 
 
         const radius =
-            2 +
+            1.5 +
             random() *
-            3
+            2.5
 
 
         const x =
             Math.cos(angle) *
             distance
 
+
         const y =
             Math.sin(angle) *
             distance
 
-        const childSeed =
-    hashSeed(
-        seed,
-        i
-    )
 
         children.push({
-    seed: childSeed,
-    x,
-    y,
-    radius
-})
-
+            seed: childSeed,
+            level: nextLevel,
+            x,
+            y,
+            radius
+        })
     }
 
 
     return children
-
 }

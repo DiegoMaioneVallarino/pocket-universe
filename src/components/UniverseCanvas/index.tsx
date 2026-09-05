@@ -7,12 +7,21 @@ import {
     generateChildren
 } from "../../engine/universe/generateChildren"
 
+import type {
+    UniverseNode
+} from "../../engine/universe/types"
+
+import {
+    generateCosmicWeb
+} from "../../engine/cosmicWeb/generateCosmicWeb"
 
 type Camera = {
     x: number
     y: number
     zoom: number
 }
+
+
 
 
 export default function UniverseCanvas() {
@@ -55,6 +64,22 @@ export default function UniverseCanvas() {
 
         const ctx: CanvasRenderingContext2D =
             context
+
+
+            const childrenCache =
+    new Map<
+        string,
+        UniverseNode[]
+    >()
+
+        const UNIVERSE_SEED =
+            42
+
+
+        const cosmicWeb =
+            generateCosmicWeb(
+                UNIVERSE_SEED
+            )
 
 
         function resizeCanvas() {
@@ -100,33 +125,133 @@ export default function UniverseCanvas() {
             )
         }
 
+    function getCachedChildren(
+    node: UniverseNode
+): UniverseNode[] {
 
-        function drawUniverseNode(
-            seed: number,
-            x: number,
-            y: number,
-            radius: number,
-            depth: number,
-            cameraZoom: number
-        ) {
+    const key =
+        `${node.level}:${node.seed}`
+
+    const cached =
+        childrenCache.get(key)
+
+    if (cached) {
+        return cached
+    }
+
+    const children =
+        generateChildren(node)
+
+    childrenCache.set(
+        key,
+        children
+    )
+
+    return children
+}
+
+function isNodeVisible(
+    x: number,
+    y: number,
+    radius: number,
+    camera: Camera
+): boolean {
+
+    const screenX =
+        (
+            x -
+            camera.x
+        ) *
+        camera.zoom +
+        canvas.width / 2
+
+
+    const screenY =
+        (
+            y -
+            camera.y
+        ) *
+        camera.zoom +
+        canvas.height / 2
+
+
+    const screenRadius =
+        radius *
+        camera.zoom
+
+
+    /*
+        Margen adicional para que los
+        objetos no aparezcan de golpe
+        justo en el borde.
+    */
+
+    const margin =
+    100
+
+
+    return (
+        screenX + screenRadius + margin >= 0 &&
+        screenX - screenRadius - margin <= canvas.width &&
+        screenY + screenRadius + margin >= 0 &&
+        screenY - screenRadius - margin <= canvas.height
+    )
+}
+  function drawUniverseNode(
+    node: UniverseNode,
+    depth: number,
+    cameraZoom: number
+){
 
             /*
                 Cada nivel necesita más zoom
                 que el anterior para abrirse.
             */
 
-            const levelScale =
-                Math.pow(
-                    5,
-                    depth
-                )
+                const {
+                    seed,
+                    x,
+                    y,
+                    radius
+                } = node
+
+                const camera =
+                    cameraRef.current
+
+
+                if (
+                    !isNodeVisible(
+                        x,
+                        y,
+                        radius,
+                        camera
+                    )
+                ) {
+                    return
+                }
+                                
+                /*
+                Tamaño aparente REAL del nodo
+                en la pantalla.
+            */
+
+            const screenRadius =
+                radius *
+                cameraZoom
+
+
+            /*
+                Nivel de detalle basado en
+                tamaño visual, NO en depth.
+            */
+
+            const REFERENCE_RADIUS_PIXELS =
+                20
 
 
             const localZoom =
-                cameraZoom /
-                levelScale
-
-
+                screenRadius /
+                REFERENCE_RADIUS_PIXELS
             /*
                 Kinestética base.
             */
@@ -213,18 +338,7 @@ export default function UniverseCanvas() {
                 depth 3 = bisnietos
             */
 
-            const MAX_DEPTH =
-                3
-
-
-            if (
-                depth >=
-                MAX_DEPTH
-            ) {
-
-                return
-
-            }
+            
 
 
             /*
@@ -241,19 +355,51 @@ export default function UniverseCanvas() {
 
             }
 
-
+            
             /*
                 Generamos hijos deterministas
                 usando la seed de este nodo.
             */
 
             const children =
-                generateChildren(
-                    seed,
-                    6
+            getCachedChildren(
+                node
+            )
+
+            /*
+            A mayor cantidad de hijos,
+            más pequeños y transparentes
+            los representamos.
+
+            Esto evita que niveles como
+            galaxy / solarSystem formen
+            nubes blancas sólidas.
+        */
+
+        const childCount =
+            children.length
+
+
+        const densityScale =
+            Math.max(
+                0.25,
+                Math.min(
+                    1,
+                    20 / childCount
                 )
+            )
 
 
+        const densityAlpha =
+            Math.max(
+                0.18,
+                Math.min(
+                    1,
+                    24 / childCount
+                )
+            )
+
+            
             /*
                 generateChildren trabaja
                 aproximadamente en una escala
@@ -333,8 +479,9 @@ export default function UniverseCanvas() {
 
 
                 const childRadius =
-                    child.radius *
-                    sizeScale
+    child.radius *
+    sizeScale *
+    densityScale
 
 
                 /*
@@ -355,26 +502,14 @@ export default function UniverseCanvas() {
     Nivel al que pertenece este hijo.
 */
 
-const nextDepth =
-    depth + 1
-
-
-/*
-    Cuánto zoom necesita ese siguiente nivel
-    para empezar a abrirse.
-*/
-
-const nextLevelScale =
-    Math.pow(
-        5,
-        nextDepth
-    )
+const childScreenRadius =
+    childRadius *
+    cameraZoom
 
 
 const nextLocalZoom =
-    cameraZoom /
-    nextLevelScale
-
+    childScreenRadius /
+    REFERENCE_RADIUS_PIXELS
 
 /*
     El núcleo existe desde que nace el hijo,
@@ -391,12 +526,16 @@ const coreFade =
     )
 
 
+const MIN_CORE_RADIUS_PIXELS =
+    0.75
+
+
 const coreRadius =
     Math.max(
         childRadius * 0.22,
-        0.15
+        MIN_CORE_RADIUS_PIXELS /
+        cameraZoom
     )
-
 
 /*
     Luz auxiliar del hijo.
@@ -404,8 +543,8 @@ const coreRadius =
 
 ctx.globalAlpha =
     childAlpha *
-    coreFade
-
+    coreFade *
+    densityAlpha
 
 ctx.fillStyle =
     "white"
@@ -431,10 +570,12 @@ ctx.fill()
 */
 
 drawUniverseNode(
-    child.seed,
-    childX,
-    childY,
-    childRadius,
+    {
+        ...child,
+        x: childX,
+        y: childY,
+        radius: childRadius
+    },
     depth + 1,
     cameraZoom
 )
@@ -519,14 +660,90 @@ ctx.restore()
                 comienza aquí.
             */
 
-            drawUniverseNode(
-                42,
-                0,
-                0,
-                20,
-                0,
-                camera.zoom
-            )
+/*
+    =============================
+    COSMIC WEB
+    =============================
+*/
+
+
+/*
+    Primero dibujamos los filamentos.
+*/
+
+ctx.globalAlpha =
+    0.18
+
+ctx.strokeStyle =
+    "white"
+
+ctx.lineWidth =
+    0.7 /
+    camera.zoom
+
+
+for (
+    const filament
+    of cosmicWeb.filaments
+) {
+
+    ctx.beginPath()
+
+    ctx.moveTo(
+        filament.start.x,
+        filament.start.y
+    )
+
+    ctx.lineTo(
+        filament.end.x,
+        filament.end.y
+    )
+
+    ctx.stroke()
+
+}
+
+
+/*
+    =============================
+    ULTRACLUSTERS
+    =============================
+*/
+
+
+ctx.globalAlpha =
+    1
+
+
+for (
+    const root
+    of cosmicWeb.ultraClusters
+) {
+
+    drawUniverseNode(
+        {
+            seed:
+                root.seed,
+
+            level:
+                "ultraCluster",
+
+            x:
+                root.x,
+
+            y:
+                root.y,
+
+            radius:
+                root.radius
+        },
+
+        0,
+
+        camera.zoom
+    )
+
+}
 
 
             ctx.globalAlpha =
@@ -670,7 +887,7 @@ ctx.restore()
                     0.05,
                     Math.min(
                         camera.zoom,
-                        500
+                         10_000_000
                     )
                 )
 
