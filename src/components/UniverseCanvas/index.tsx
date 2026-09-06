@@ -667,41 +667,8 @@ ctx.restore()
 */
 
 
-/*
-    Primero dibujamos los filamentos.
-*/
-
-ctx.globalAlpha =
-    0.18
-
-ctx.strokeStyle =
-    "white"
-
-ctx.lineWidth =
-    0.7 /
-    camera.zoom
 
 
-for (
-    const filament
-    of cosmicWeb.filaments
-) {
-
-    ctx.beginPath()
-
-    ctx.moveTo(
-        filament.start.x,
-        filament.start.y
-    )
-
-    ctx.lineTo(
-        filament.end.x,
-        filament.end.y
-    )
-
-    ctx.stroke()
-
-}
 
 
 /*

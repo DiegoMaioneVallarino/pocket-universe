@@ -6,16 +6,32 @@ import {
     hashSeed
 } from "../hash/hashSeed"
 
+import {
+    sampleVoronoi
+} from "./voronoi"
+
 import type {
     CosmicVoid,
     CosmicFilament,
     UltraClusterRoot
 } from "./types"
 
+import {
+    domainWarp
+} from "../noise/domainWarp"
 
 export type CosmicWeb = {
     voids: CosmicVoid[]
+
+    /*
+        Los conservamos temporalmente
+        para visualizar la geometría anterior.
+
+        Más adelante podremos eliminarlos.
+    */
+
     filaments: CosmicFilament[]
+
     ultraClusters: UltraClusterRoot[]
 }
 
@@ -39,14 +55,26 @@ export function generateCosmicWeb(
 
 
     /*
-        Primero generamos grandes vacíos.
+        ====================================
+        1. CENTROS DE VACÍOS COSMOLÓGICOS
+        ====================================
 
-        Por ahora 9.
-        Luego esto también será espacialmente infinito.
+        Estos puntos NO representan materia.
+
+        Representan aproximadamente los
+        centros de grandes regiones vacías.
     */
 
+
     const VOID_COUNT =
-        9
+        12
+
+
+    const WORLD_WIDTH =
+        1000
+
+    const WORLD_HEIGHT =
+        700
 
 
     for (
@@ -60,7 +88,7 @@ export function generateCosmicWeb(
                 random() -
                 0.5
             ) *
-            900
+            WORLD_WIDTH
 
 
         const y =
@@ -68,7 +96,7 @@ export function generateCosmicWeb(
                 random() -
                 0.5
             ) *
-            600
+            WORLD_HEIGHT
 
 
         const radius =
@@ -82,17 +110,21 @@ export function generateCosmicWeb(
             y,
             radius
         })
-
     }
 
 
     /*
-        Ahora conectamos cada vacío
-        con sus vecinos más cercanos.
+        ====================================
+        2. FILAMENTOS VISUALES TEMPORALES
+        ====================================
 
-        Es una primera aproximación
-        al cosmic web.
+        Por ahora mantenemos las conexiones
+        anteriores para comparar visualmente
+        el sistema viejo con el nuevo.
+
+        Después desaparecerán.
     */
+
 
     for (
         let i = 0;
@@ -139,7 +171,6 @@ export function generateCosmicWeb(
                             void: other,
                             distance
                         }
-
                     }
                 )
                 .filter(
@@ -157,13 +188,6 @@ export function generateCosmicWeb(
                         b.distance
                 )
 
-
-        /*
-            Conectamos con 2 vecinos.
-
-            Eso tiende a generar una red
-            sin convertirla en telaraña total.
-        */
 
         const selected =
             neighbors.slice(
@@ -188,100 +212,206 @@ export function generateCosmicWeb(
                     y: neighbor.void.y
                 }
             })
-
         }
-
     }
 
 
     /*
-        Ahora poblamos los filamentos
-        con ultraClusters.
+        ====================================
+        3. CAMPO VORONOI
+        ====================================
+
+        Ya NO vamos a colocar ultraclusters
+        recorriendo las líneas anteriores.
+
+        Vamos a tomar muestras del espacio.
+
+        Cada posición pregunta:
+
+            "¿Estoy cerca de una frontera
+             entre dos vacíos?"
+
+        Si la respuesta es sí:
+
+            puede existir materia aquí.
     */
+
+
+    const SAMPLE_SPACING =
+        18
+
+
+    /*
+        Cuánto debe parecerse la distancia
+        hacia los dos vacíos más cercanos.
+
+        Más alto:
+            filamentos más finos.
+
+        Más bajo:
+            paredes más gruesas.
+    */
+
+    const FILAMENT_THRESHOLD =
+        0.94
+
 
     let ultraClusterIndex =
         0
 
 
     for (
-        const filament
-        of filaments
+        let y =
+            -WORLD_HEIGHT / 2;
+
+        y <=
+            WORLD_HEIGHT / 2;
+
+        y +=
+            SAMPLE_SPACING
     ) {
 
-        const count =
-            5 +
-            Math.floor(
-                random() *
-                8
-            )
-
-
         for (
-            let i = 0;
-            i < count;
-            i++
+            let x =
+                -WORLD_WIDTH / 2;
+
+            x <=
+                WORLD_WIDTH / 2;
+
+            x +=
+                SAMPLE_SPACING
         ) {
 
             /*
-                t indica qué tan lejos estamos
-                sobre el segmento.
+                Pequeño jitter determinista.
+
+                Evita que la materia revele
+                descaradamente la cuadrícula
+                de muestreo.
             */
 
-            const t =
+            const sampleX =
+                x +
                 (
-                    i +
-                    1
-                ) /
+                    random() -
+                    0.5
+                ) *
+                SAMPLE_SPACING *
+                0.8
+
+
+            const sampleY =
+                y +
                 (
-                    count +
-                    1
+                    random() -
+                    0.5
+                ) *
+                SAMPLE_SPACING *
+                0.8
+
+
+            const warped =
+                domainWarp(
+                    x,
+                    y,
+                    seed,
+                    0.004,
+                    45
+                )
+
+
+            const voronoi =
+                sampleVoronoi(
+                    warped.x,
+                    warped.y,
+                    voids
                 )
 
 
             /*
-                Interpolación lineal
-                sobre el hilo.
+                Si no estamos suficientemente
+                cerca de una frontera:
+
+                esto pertenece al vacío.
             */
 
-            let x =
-                filament.start.x +
-                (
-                    filament.end.x -
-                    filament.start.x
-                ) *
-                t
+            if (
+                voronoi.filamentStrength <
+                FILAMENT_THRESHOLD
+            ) {
 
-
-            let y =
-                filament.start.y +
-                (
-                    filament.end.y -
-                    filament.start.y
-                ) *
-                t
+                continue
+            }
 
 
             /*
-                Pequeña perturbación transversal
-                para que no parezca un collar
-                perfectamente recto.
+                Incluso dentro del filamento
+                no queremos llenar TODOS
+                los samples.
+
+                Queremos densidad irregular.
             */
 
-            x +=
+            const normalizedStrength =
                 (
-                    random() -
-                    0.5
-                ) *
-                20
-
-
-            y +=
+                    voronoi.filamentStrength -
+                    FILAMENT_THRESHOLD
+                ) /
                 (
-                    random() -
-                    0.5
-                ) *
-                20
+                    1 -
+                    FILAMENT_THRESHOLD
+                )
 
+                const nodeStrength =
+                voronoi.nodeStrength
+
+
+            /*
+                Cerca de una intersección de tres
+                regiones Voronoi queremos mucha
+                más densidad de materia.
+            */
+
+            const nodeBoost =
+                Math.pow(
+                    nodeStrength,
+                    8
+                )
+
+
+            /*
+                Cuanto más cerca estemos del
+                centro matemático del filamento,
+                mayor probabilidad de materia.
+            */
+
+            const spawnProbability =
+            Math.min(
+                0.95,
+
+                0.12 +
+                normalizedStrength *
+                0.38 +
+                nodeBoost *
+                0.45
+            )
+
+            if (
+                random() >
+                spawnProbability
+            ) {
+
+                continue
+            }
+
+
+            /*
+                Seed independiente del
+                ultracluster.
+
+                Sigue siendo completamente
+                determinista.
+            */
 
             const rootSeed =
                 hashSeed(
@@ -290,22 +420,38 @@ export function generateCosmicWeb(
                 )
 
 
-            ultraClusters.push({
-                seed: rootSeed,
-                x,
-                y,
+            /*
+                Los puntos más centrales
+                del filamento pueden tener
+                estructuras ligeramente
+                mayores.
+            */
 
-                radius:
-                    8 +
-                    random() *
-                    8
+            const radius =
+    4 +
+    normalizedStrength *
+    4 +
+    nodeBoost *
+    8 +
+    random() *
+    2
+
+            ultraClusters.push({
+                seed:
+                    rootSeed,
+
+                x:
+                    sampleX,
+
+                y:
+                    sampleY,
+
+                radius
             })
 
 
             ultraClusterIndex++
-
         }
-
     }
 
 
