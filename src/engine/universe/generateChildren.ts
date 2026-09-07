@@ -16,12 +16,12 @@ import type {
 
 
 const CHILD_COUNT_RANGE = {
-    ultraCluster: [8, 16],
-    hyperCluster: [12, 16],
-    superCluster: [16, 26],
-    cluster: [24, 32],
-    galaxy: [32, 64],
-    solarSystem: [2, 15],
+    ultraCluster: [24, 32],
+    hyperCluster: [32, 64],
+    superCluster: [32, 64],
+    cluster: [24, 40],
+    galaxy: [64, 120],
+    solarSystem: [120, 150],
     planet: [0, 12]
 } as const
 

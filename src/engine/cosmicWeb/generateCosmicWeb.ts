@@ -286,7 +286,7 @@ const offsetY =
 
 
     const SAMPLE_SPACING =
-        10
+        7.5
 
 
     /*

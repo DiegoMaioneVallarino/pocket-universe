@@ -187,6 +187,172 @@ function getCosmicChunk(
 
     return cosmicWeb
 }
+
+function getSectorLuminosity(
+    camera: Camera
+): number {
+
+    /*
+        Chunk en el que se encuentra
+        actualmente el centro de cámara.
+    */
+
+    const centerChunkX =
+        Math.floor(
+            camera.x /
+            COSMIC_CHUNK_SIZE
+        )
+
+    const centerChunkY =
+        Math.floor(
+            camera.y /
+            COSMIC_CHUNK_SIZE
+        )
+
+
+    let luminosity =
+        0
+
+    let samples =
+        0
+
+
+    /*
+        Consultamos el chunk central
+        y sus 8 vecinos.
+
+        Así la luminosidad no cambia
+        bruscamente al cruzar una frontera.
+    */
+
+    for (
+        let chunkOffsetY = -1;
+        chunkOffsetY <= 1;
+        chunkOffsetY++
+    ) {
+
+        for (
+            let chunkOffsetX = -1;
+            chunkOffsetX <= 1;
+            chunkOffsetX++
+        ) {
+
+            const cosmicWeb =
+                getCosmicChunk(
+                    centerChunkX +
+                        chunkOffsetX,
+
+                    centerChunkY +
+                        chunkOffsetY
+                )
+
+
+            for (
+                const root
+                of cosmicWeb.ultraClusters
+            ) {
+
+                const dx =
+                    root.x -
+                    camera.x
+
+                const dy =
+                    root.y -
+                    camera.y
+
+
+                const distance =
+                    Math.sqrt(
+                        dx * dx +
+                        dy * dy
+                    )
+
+
+                /*
+                    Radio dentro del cual una
+                    estructura contribuye al
+                    brillo ambiental.
+                */
+
+                const influenceRadius =
+                    500
+
+
+                if (
+                    distance >
+                    influenceRadius
+                ) {
+                    continue
+                }
+
+
+                /*
+                    1 en el centro.
+
+                    0 cuando llegamos al
+                    límite de influencia.
+                */
+
+                const distanceFactor =
+                    1 -
+                    distance /
+                    influenceRadius
+
+
+                /*
+                    Estructuras grandes aportan
+                    ligeramente más luz.
+                */
+
+                const massFactor =
+                    Math.min(
+                        1.5,
+                        root.radius /
+                        8
+                    )
+
+
+                luminosity +=
+                    distanceFactor *
+                    distanceFactor *
+                    massFactor
+
+
+                samples++
+            }
+        }
+    }
+
+
+    if (
+        samples === 0
+    ) {
+        return 0
+    }
+
+
+    /*
+        Normalizamos aproximadamente.
+
+        Queremos un valor manejable:
+        0 ... 1
+    */
+
+    const normalized =
+        luminosity /
+        18
+
+
+    return Math.max(
+        0,
+        Math.min(
+            1,
+            normalized
+        )
+    )
+}
+
+
 function isNodeVisible(
     x: number,
     y: number,
@@ -254,7 +420,7 @@ function isNodeVisible(
 
                 const camera =
                     cameraRef.current
-
+               
 
                 if (
                     !isNodeVisible(
@@ -271,6 +437,8 @@ function isNodeVisible(
                 Tamaño aparente REAL del nodo
                 en la pantalla.
             */
+                const NODE_RADIUS_SCALE =
+    0.45
 
             const screenRadius =
                 radius *
@@ -293,77 +461,202 @@ function isNodeVisible(
                 Kinestética base.
             */
 
-            const parentFadeStart =
-                0.5
-
-            const parentFadeEnd =
-                1.1
+            
 
             const childFadeStart =
-                0.8
+                0.6
 
             const childFadeEnd =
                 2.0
+          const MIN_PARENT_ALPHA =
+    0.04
 
 
-            const parentAlpha =
-                1 -
-                smoothstep(
-                    parentFadeStart,
-                    parentFadeEnd,
-                    localZoom
-                )
+/*
+    =====================================
+    RADIO BASE DEL FATHER
+    =====================================
+
+    ESTE radio también será la referencia
+    espacial de los hijos.
+
+    Nunca lo modificamos con la expansión
+    tardía.
+*/
+
+const baseParentRadius =
+    radius *
+    NODE_RADIUS_SCALE
 
 
-            /*
-                Contracción del padre.
-            */
+/*
+    Radio actual del father en píxeles
+    de pantalla.
+*/
 
-            const parentShrink =
-                smoothstep(
-                    parentFadeStart,
-                    1.4,
-                    localZoom
-                )
+const visibleParentRadiusPixels =
+    baseParentRadius *
+    cameraZoom
 
 
-            const parentRadius =
-                radius *
-                (
-                    1 -
-                    parentShrink *
-                    0.75
-                )
+/*
+    =====================================
+    FADE DEL FATHER
+    =====================================
+*/
+
+const PARENT_FADE_START_PIXELS =
+    0.1
+
+const PARENT_FADE_END_PIXELS =
+    8
 
 
-            /*
-                Dibujamos el nodo actual.
-            */
+const parentFade =
+    smoothstep(
+        PARENT_FADE_START_PIXELS,
+        PARENT_FADE_END_PIXELS,
+        visibleParentRadiusPixels
+    )
 
-            if (
-                parentAlpha >
-                0.001
-            ) {
 
-                ctx.globalAlpha =
-                    parentAlpha
+const parentAlpha =
+    1 -
+    parentFade *
+    (
+        1 -
+        MIN_PARENT_ALPHA
+    )
 
-                ctx.fillStyle =
-                    "white"
 
-                ctx.beginPath()
+/*
+    =====================================
+    EXPANSIÓN TARDÍA DEL FATHER
+    =====================================
 
-                ctx.arc(
-                    x,
-                    y,
-                    parentRadius,
-                    0,
-                    Math.PI * 2
-                )
+    Empieza cuando ya cruzamos
+    PARENT_FADE_END_PIXELS.
 
-                ctx.fill()
+    Esto SOLO modifica cómo dibujamos
+    el father.
 
-            }
+    NO modifica la posición de los hijos.
+*/
+
+const FATHER_EXPANSION_END_PIXELS =
+    25
+
+
+const fatherExpansionProgress =
+    smoothstep(
+        PARENT_FADE_END_PIXELS,
+        FATHER_EXPANSION_END_PIXELS,
+        visibleParentRadiusPixels
+    )
+
+
+const FATHER_MAX_EXPANSION =
+    1.5
+
+
+const expandedParentRadius =
+    baseParentRadius *
+    (
+        1 +
+        fatherExpansionProgress *
+        (
+            FATHER_MAX_EXPANSION -
+            1
+        )
+    )
+
+
+/*
+    =====================================
+    SEGUNDO CÍRCULO
+    =====================================
+*/
+
+const SECOND_CIRCLE_SCALE =
+    1.25
+
+
+const secondCircleRadius =
+    expandedParentRadius *
+    SECOND_CIRCLE_SCALE
+
+
+/*
+    30% menos alpha que el principal.
+*/
+
+const secondCircleAlpha =
+    parentAlpha *
+    0.70 *
+    fatherExpansionProgress
+
+
+/*
+    =====================================
+    DIBUJAMOS CÍRCULO EXTERIOR
+    =====================================
+*/
+
+if (
+    secondCircleAlpha >
+    0.001
+) {
+
+    ctx.globalAlpha =
+        secondCircleAlpha
+
+    ctx.fillStyle =
+        "white"
+
+    ctx.beginPath()
+
+    ctx.arc(
+        x,
+        y,
+        secondCircleRadius,
+        0,
+        Math.PI * 2
+    )
+
+    ctx.fill()
+}
+
+
+/*
+    =====================================
+    DIBUJAMOS FATHER PRINCIPAL
+    =====================================
+*/
+
+if (
+    parentAlpha >
+    0.001
+) {
+
+    ctx.globalAlpha =
+        parentAlpha
+
+    ctx.fillStyle =
+        "white"
+
+    ctx.beginPath()
+
+    ctx.arc(
+        x,
+        y,
+        expandedParentRadius,
+        0,
+        Math.PI * 2
+    )
+
+    ctx.fill()
+}
+            
 
 
             /*
@@ -443,9 +736,11 @@ function isNodeVisible(
                 cuyo padre original tenía radio 20.
             */
 
-            const sizeScale =
-                radius /
-                20
+
+
+           const sizeScale =
+    baseParentRadius /
+    20
 
 
             for (
@@ -493,12 +788,26 @@ function isNodeVisible(
                     Expansión desde el centro.
                 */
 
-                const expansion =
-                    smoothstep(
-                        childFadeStart,
-                        childFadeEnd,
-                        localZoom
-                    )
+                /*
+    La expansión espacial empieza temprano,
+    pero desacelera conforme los hijos llegan
+    a su posición definitiva.
+
+    Esto evita el efecto "palomita".
+*/
+
+            const expansionProgress =
+                smoothstep(
+                    0.25,
+                    1.8,
+                    localZoom
+                )
+
+
+            const expansion =
+                Math.sqrt(
+                    expansionProgress
+                )
 
 
                 const childX =
@@ -538,7 +847,18 @@ function isNodeVisible(
 /*
     Nivel al que pertenece este hijo.
 */
+const childNode: UniverseNode = {
+    ...child,
 
+    x:
+        childX,
+
+    y:
+        childY,
+
+    radius:
+        childRadius
+}
 const childScreenRadius =
     childRadius *
     cameraZoom
@@ -598,6 +918,7 @@ ctx.arc(
 
 ctx.fill()
 
+ctx.restore()
 
 /*
     Ahora dibujamos el nodo REAL.
@@ -605,17 +926,19 @@ ctx.fill()
     Este sí es el que eventualmente
     se descompone en sus propios hijos.
 */
+ctx.save()
+
+ctx.globalAlpha *=
+    childAlpha
+
 
 drawUniverseNode(
-    {
-        ...child,
-        x: childX,
-        y: childY,
-        radius: childRadius
-    },
+    childNode,
     depth + 1,
     cameraZoom
 )
+
+
 ctx.restore()
 
             }
@@ -627,7 +950,24 @@ ctx.restore()
 
             const camera =
                 cameraRef.current
+            const sectorLuminosity =
+            getSectorLuminosity(
+                camera
+            )
 
+
+        const backgroundZoomFade =
+            1 -
+            smoothstep(
+                0.15,
+                500,
+                camera.zoom
+            )
+
+
+        const backgroundLuminosity =
+            sectorLuminosity *
+            backgroundZoomFade
 
             /*
                 Limpiamos canvas.
@@ -645,9 +985,39 @@ ctx.restore()
                 Fondo.
             */
 
-            ctx.fillStyle =
-                "#050505"
+            /*
+    Fondo mínimo.
 
+    Nunca usamos negro absoluto.
+*/
+
+const minimumBackground =
+    3
+
+
+/*
+    Cuánto puede iluminar una
+    región extremadamente densa.
+*/
+
+const maximumExtraBrightness =
+    22
+
+
+const backgroundValue =
+    Math.floor(
+        minimumBackground +
+        backgroundLuminosity *
+        maximumExtraBrightness
+    )
+
+
+ctx.fillStyle =
+    `rgb(
+        ${backgroundValue},
+        ${backgroundValue},
+        ${backgroundValue + 2}
+    )`
             ctx.fillRect(
                 0,
                 0,
@@ -836,6 +1206,7 @@ for (
             const root
             of cosmicWeb.ultraClusters
         ) {
+           
 
             drawUniverseNode(
                 {
@@ -991,7 +1362,10 @@ ctx.globalAlpha =
 
             camera.zoom *=
                 zoomFactor
-
+console.log(
+    "ZOOM:",
+    camera.zoom
+)
 
             /*
                 Permitimos un poco más de zoom
@@ -1001,7 +1375,7 @@ ctx.globalAlpha =
 
             camera.zoom =
                 Math.max(
-                    0.05,
+                    0.15,
                     Math.min(
                         camera.zoom,
                          10_000_000
