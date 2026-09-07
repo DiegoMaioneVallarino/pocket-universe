@@ -15,6 +15,11 @@ import {
     generateCosmicWeb
 } from "../../engine/cosmicWeb/generateCosmicWeb"
 
+import {
+    COSMIC_CHUNK_SIZE,
+    getCosmicChunkSeed
+} from "../../engine/cosmicWeb/chunk"
+
 type Camera = {
     x: number
     y: number
@@ -71,17 +76,16 @@ export default function UniverseCanvas() {
         string,
         UniverseNode[]
     >()
-
+const cosmicChunkCache =
+    new Map<
+        string,
+        ReturnType<typeof generateCosmicWeb>
+    >()
         const UNIVERSE_SEED =
             42
 
 
-        const cosmicWeb =
-            generateCosmicWeb(
-                UNIVERSE_SEED
-            )
-
-
+       
         function resizeCanvas() {
 
             canvas.width =
@@ -149,7 +153,40 @@ export default function UniverseCanvas() {
 
     return children
 }
+function getCosmicChunk(
+    chunkX: number,
+    chunkY: number
+) {
 
+    const key =
+        `${chunkX}:${chunkY}`
+
+
+    const cached =
+        cosmicChunkCache.get(
+            key
+        )
+
+    if (cached) {
+        return cached
+    }
+
+
+    const cosmicWeb =
+    generateCosmicWeb(
+        UNIVERSE_SEED,
+        chunkX,
+        chunkY
+    )
+
+    cosmicChunkCache.set(
+        key,
+        cosmicWeb
+    )
+
+
+    return cosmicWeb
+}
 function isNodeVisible(
     x: number,
     y: number,
@@ -682,40 +719,153 @@ ctx.globalAlpha =
     1
 
 
-for (
-    const root
-    of cosmicWeb.ultraClusters
-) {
+/*
+    Tamaño del mundo visible actualmente.
 
-    drawUniverseNode(
-        {
-            seed:
-                root.seed,
+    Cuanto más alejamos la cámara,
+    mayor región del universo cabe
+    dentro de la pantalla.
+*/
 
-            level:
-                "ultraCluster",
-
-            x:
-                root.x,
-
-            y:
-                root.y,
-
-            radius:
-                root.radius
-        },
-
-        0,
-
+const halfWorldWidth =
+    canvas.width /
+    (
+        2 *
         camera.zoom
     )
 
+
+const halfWorldHeight =
+    canvas.height /
+    (
+        2 *
+        camera.zoom
+    )
+
+
+/*
+    Calculamos qué chunks intersectan
+    la región visible.
+
+    El +1 / -1 genera un pequeño margen
+    para evitar popping en los bordes.
+*/
+
+const minChunkX =
+    Math.floor(
+        (
+            camera.x -
+            halfWorldWidth
+        ) /
+        COSMIC_CHUNK_SIZE
+    ) -
+    1
+
+
+const maxChunkX =
+    Math.floor(
+        (
+            camera.x +
+            halfWorldWidth
+        ) /
+        COSMIC_CHUNK_SIZE
+    ) +
+    1
+
+
+const minChunkY =
+    Math.floor(
+        (
+            camera.y -
+            halfWorldHeight
+        ) /
+        COSMIC_CHUNK_SIZE
+    ) -
+    1
+
+
+const maxChunkY =
+    Math.floor(
+        (
+            camera.y +
+            halfWorldHeight
+        ) /
+        COSMIC_CHUNK_SIZE
+    ) +
+    1
+
+
+/*
+    Recorremos SOLAMENTE los chunks
+    que pueden aparecer en pantalla.
+*/
+
+for (
+    let chunkY =
+        minChunkY;
+
+    chunkY <=
+        maxChunkY;
+
+    chunkY++
+) {
+
+    for (
+        let chunkX =
+            minChunkX;
+
+        chunkX <=
+            maxChunkX;
+
+        chunkX++
+    ) {
+
+        const cosmicWeb =
+            getCosmicChunk(
+                chunkX,
+                chunkY
+            )
+
+
+        /*
+            Cada chunk contiene sus propios
+            ultraclusters deterministas.
+        */
+
+        for (
+            const root
+            of cosmicWeb.ultraClusters
+        ) {
+
+            drawUniverseNode(
+                {
+                    seed:
+                        root.seed,
+
+                    level:
+                        "ultraCluster",
+
+                    x:
+                        root.x,
+
+                    y:
+                        root.y,
+
+                    radius:
+                        root.radius
+                },
+
+                0,
+
+                camera.zoom
+            )
+        }
+    }
 }
 
 
-            ctx.globalAlpha =
-                1
-
+ctx.globalAlpha =
+    1
 
             ctx.restore()
 

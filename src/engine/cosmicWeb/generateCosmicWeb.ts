@@ -17,8 +17,20 @@ import type {
 } from "./types"
 
 import {
+    COSMIC_CHUNK_SIZE
+} from "./chunk"
+
+import {
+    valueNoise2D
+} from "../noise/valueNoise"
+
+import {
     domainWarp
 } from "../noise/domainWarp"
+
+import {
+    generateChunkVoids
+} from "./generateChunkVoids"
 
 export type CosmicWeb = {
     voids: CosmicVoid[]
@@ -37,15 +49,16 @@ export type CosmicWeb = {
 
 
 export function generateCosmicWeb(
-    seed: number
+    universeSeed: number,
+    chunkX: number,
+    chunkY: number
 ): CosmicWeb {
 
-    const random =
-        seededRandom(seed)
+   const random =
+    seededRandom(universeSeed)
 
 
-    const voids: CosmicVoid[] =
-        []
+    
 
     const filaments: CosmicFilament[] =
         []
@@ -66,51 +79,86 @@ export function generateCosmicWeb(
     */
 
 
-    const VOID_COUNT =
-        12
+  
 
 
-    const WORLD_WIDTH =
-        1000
+     
+  /*
+    ====================================
+    SEMILLAS VORONOI DISTRIBUIDAS
+    POR TODO EL MUNDO
+    ====================================
 
-    const WORLD_HEIGHT =
-        700
+    En vez de tirar 12 puntos al azar,
+    dividimos el universo en celdas.
 
+    Cada celda recibe aproximadamente
+    un centro de vacío, con jitter
+    pseudoaleatorio.
+
+    Así evitamos que todas las semillas
+    se amontonen accidentalmente
+    en una sola región.
+*/
+
+
+/*
+    ====================================
+    VOIDS DEL CHUNK + VECINOS
+    ====================================
+
+    Renderizamos solo el chunk central,
+    pero el Voronoi conoce también los
+    centros de vacío de los 8 chunks
+    adyacentes.
+*/
+
+const voids: CosmicVoid[] =
+    []
+
+
+for (
+    let neighborY = -1;
+    neighborY <= 1;
+    neighborY++
+) {
 
     for (
-        let i = 0;
-        i < VOID_COUNT;
-        i++
+        let neighborX = -1;
+        neighborX <= 1;
+        neighborX++
     ) {
 
-        const x =
-            (
-                random() -
-                0.5
-            ) *
-            WORLD_WIDTH
+        const neighborVoids =
+            generateChunkVoids(
+                universeSeed,
+                chunkX + neighborX,
+                chunkY + neighborY
+            )
 
 
-        const y =
-            (
-                random() -
-                0.5
-            ) *
-            WORLD_HEIGHT
-
-
-        const radius =
-            70 +
-            random() *
-            100
-
-
-        voids.push({
-            x,
-            y,
-            radius
-        })
+        voids.push(
+            ...neighborVoids
+        )
     }
+}
+
+const WORLD_WIDTH =
+    COSMIC_CHUNK_SIZE
+
+const WORLD_HEIGHT =
+    COSMIC_CHUNK_SIZE
+
+
+const offsetX =
+    chunkX *
+    COSMIC_CHUNK_SIZE
+
+
+const offsetY =
+    chunkY *
+    COSMIC_CHUNK_SIZE
+
 
 
     /*
@@ -238,7 +286,7 @@ export function generateCosmicWeb(
 
 
     const SAMPLE_SPACING =
-        18
+        10
 
 
     /*
@@ -253,7 +301,7 @@ export function generateCosmicWeb(
     */
 
     const FILAMENT_THRESHOLD =
-        0.94
+        0.84
 
 
     let ultraClusterIndex =
@@ -262,24 +310,24 @@ export function generateCosmicWeb(
 
     for (
         let y =
-            -WORLD_HEIGHT / 2;
+    offsetY -
+    WORLD_HEIGHT / 2;
 
         y <=
-            WORLD_HEIGHT / 2;
-
-        y +=
-            SAMPLE_SPACING
+    offsetY +
+    WORLD_HEIGHT / 2;
+        y += SAMPLE_SPACING
     ) {
 
         for (
             let x =
-                -WORLD_WIDTH / 2;
+    offsetX -
+    WORLD_WIDTH / 2;
 
             x <=
-                WORLD_WIDTH / 2;
-
-            x +=
-                SAMPLE_SPACING
+    offsetX +
+    WORLD_WIDTH / 2;
+            x += SAMPLE_SPACING
         ) {
 
             /*
@@ -314,8 +362,8 @@ export function generateCosmicWeb(
                 domainWarp(
                     x,
                     y,
-                    seed,
-                    0.004,
+                    universeSeed,
+                    0.0025,
                     45
                 )
 
@@ -326,6 +374,56 @@ export function generateCosmicWeb(
                     warped.y,
                     voids
                 )
+                /*
+    ====================================
+    CAMPO CONTINUO DE DENSIDAD
+    ====================================
+
+    Este campo decide qué regiones del
+    cosmic web contienen más materia.
+
+    La frecuencia es baja a propósito:
+    queremos manchas de densidad grandes,
+    no ruido punto por punto.
+*/
+
+const densityNoise =
+    valueNoise2D(
+        sampleX * 0.002,
+        sampleY * 0.002,
+        universeSeed + 5000
+    )
+
+
+/*
+    valueNoise2D devuelve aproximadamente:
+
+        -1 ... 1
+
+    Lo llevamos a:
+
+         0 ... 1
+*/
+
+const density =
+    (
+        densityNoise +
+        1
+    ) / 2
+
+
+/*
+    Aumentamos el contraste.
+
+    La mayoría de regiones quedan tenues
+    y unas pocas se vuelven muy densas.
+*/
+
+const concentratedDensity =
+    Math.pow(
+        density,
+        2.5
+    )
 
 
             /*
@@ -386,15 +484,40 @@ export function generateCosmicWeb(
             */
 
             const spawnProbability =
-            Math.min(
-                0.95,
+    Math.min(
+        0.95,
 
-                0.12 +
-                normalizedStrength *
-                0.38 +
-                nodeBoost *
-                0.45
-            )
+        /*
+            Una pequeña densidad base.
+        */
+
+        0.03 +
+
+        /*
+            El filamento puede estar
+            pobre o muy poblado dependiendo
+            del campo de densidad.
+        */
+
+        normalizedStrength *
+        (
+            0.12 +
+            concentratedDensity *
+            0.58
+        ) +
+
+        /*
+            Las intersecciones siguen siendo
+            zonas especialmente importantes.
+        */
+
+        nodeBoost *
+        (
+            0.15 +
+            concentratedDensity *
+            0.25
+        )
+    )
 
             if (
                 random() >
@@ -415,7 +538,7 @@ export function generateCosmicWeb(
 
             const rootSeed =
                 hashSeed(
-                    seed,
+                    universeSeed,
                     ultraClusterIndex
                 )
 
@@ -427,14 +550,36 @@ export function generateCosmicWeb(
                 mayores.
             */
 
-            const radius =
-    4 +
+      const radius =
+    2.5 +
+
+    /*
+        Cuanto más densa la región,
+        ligeramente mayores pueden ser
+        sus estructuras.
+    */
+
     normalizedStrength *
-    4 +
+    (
+        1.5 +
+        concentratedDensity *
+        4
+    ) +
+
+    /*
+        Los nodos Voronoi siguen teniendo
+        estructuras especialmente grandes.
+    */
+
     nodeBoost *
-    8 +
+    (
+        2 +
+        concentratedDensity *
+        5
+    ) +
+
     random() *
-    2
+    1.5
 
             ultraClusters.push({
                 seed:
